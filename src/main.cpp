@@ -4,6 +4,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <HardwareSerial.h>
+#include <ESP32Servo.h>
 
 // Định nghĩa chân
 #define DS18B20_PIN 22
@@ -11,14 +12,17 @@
 #define HUMIDITY_SENSOR_PIN 34
 #define SIM_RX 26
 #define SIM_TX 27
+#define SERVO_PIN 21
 
 #define HOST "example.com"
+#define SERVO_PERIOD 5000
 
 // Khởi tạo đối tượng
 Adafruit_AHTX0 aht;
 OneWire oneWire(DS18B20_PIN);
 DallasTemperature ds18b20(&oneWire);
 HardwareSerial simSerial(2);
+Servo servo;
 
 // Biến toàn cục
 float ahtTemp = 0.0, ahtHumidity = 0.0, dsTemp = 0.0, capHumidity = 0.0;
@@ -68,11 +72,23 @@ void relayTask(void *pvParameters)
     {
       digitalWrite(RELAY_PIN, HIGH);
       Serial.println("Relay ON - Động cơ chạy");
+
+      for (int pos = 45; pos <= 135; pos++)
+      {
+        servo.write(pos);
+        vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+      }
+      for (int pos = 135; pos >= 45; pos--)
+      {
+        servo.write(pos);
+        vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+      }
     }
     else
     {
       digitalWrite(RELAY_PIN, LOW);
       Serial.println("Relay OFF - Động cơ dừng");
+      servo.write(90);
     }
 
     vTaskDelay(pdMS_TO_TICKS(3000));
@@ -153,6 +169,18 @@ void setup()
   }
   ds18b20.begin();
   initSIMModule();
+
+  // Allow allocation of all timers
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+  servo.setPeriodHertz(50);            // Standard 50hz servo
+  servo.attach(SERVO_PIN, 1000, 2000); // attaches the servo on pin 18 to the servo object
+                                         // using SG90 servo min/max of 500us and 2400us
+                                         // for MG995 large servo, use 1000us and 2000us,
+                                         // which are the defaults, so this line could be
+                                         // "myservo.attach(servoPin);"
 
   dataMutex = xSemaphoreCreateMutex();
 
