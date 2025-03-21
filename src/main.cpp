@@ -9,8 +9,9 @@
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 
+// 13, 12, 14, 34, 35, 16, 17, 18, 19, 21, 22
 // Định nghĩa chân
-#define DS18B20_PIN 22
+#define DS18B20_PIN 14
 #define RELAY_PIN 13
 #define HUMIDITY_SENSOR_PIN 34
 #define SIM_RX 16
@@ -19,9 +20,9 @@
 #define MQ135_PIN 35 // Chân GPIO cho MQ135 (analog)
 #define ZH03B_RX 18  // Chân RX cho ZH03B
 #define ZH03B_TX 19  // Chân TX cho ZH03B
-#define LED1_PIN 2
+#define LED1_PIN 2   // relay for led 2
 
-#define HOST "example.com"
+#define HOST "mmsso.com"
 #define SERVO_PERIOD 5000
 
 // Khởi tạo đối tượng
