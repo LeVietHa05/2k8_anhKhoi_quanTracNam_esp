@@ -9,6 +9,9 @@
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 #include <SD_ZH03B.h>
+#include <WiFiManager.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 // 13, 12, 14, 34, 35, 16, 17, 18, 19, 21, 22
 // Định nghĩa chân
@@ -24,6 +27,8 @@
 #define LED1_PIN 2   // relay for led 2
 
 #define HOST "mmsso.com"
+const char *serverUrl1 = "https://mmsso.com/led-states";
+String serverUrl2 = "https://mmsso.com/update";
 #define SERVO_PERIOD 5000
 // active low relay
 #define RELAY_TYPE LOW
@@ -195,6 +200,103 @@ void simTask(void *pvParameters)
   }
 }
 
+void wifiSendTask(void *pvParameters)
+{
+  while (1)
+  {
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      HTTPClient http;
+      WiFiClientSecure client;
+      client.setInsecure(); // Bỏ qua kiểm tra chứng chỉ SSL (dùng cho test)
+      String url = serverUrl2 + "?temp1=" + String(ahtTemp) +
+                   "&humid1=" + String(ahtHumidity) +
+                   "&temp2=" + String(dsTemp) +
+                   "&humid2=" + String(capHumidity) +
+                   "&co2=" + String(co2PPM) +
+                   "&pm25=" + String(pm25) +
+                   "&pm10=" + String(pm10);
+      // Gửi yêu cầu GET
+      http.begin(client, url);
+      int httpCode = http.GET();
+
+      if (httpCode > 0)
+      {
+        String payload = http.getString();
+        Serial.println("Response: " + payload);
+      }
+      else
+      {
+        Serial.println("HTTP request failed, code: " + String(httpCode));
+      }
+
+      http.end();
+    }
+    else
+    {
+      Serial.println("WiFi disconnected");
+      u8g2.clearBuffer();
+      u8g2.drawStr(0, 10, "WiFi Disconnected");
+      u8g2.sendBuffer();
+    }
+  }
+}
+
+void wifiReadTask(void *pvParameters)
+{
+  while (1)
+  {
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      HTTPClient http;
+      WiFiClientSecure client;
+      client.setInsecure(); // Bỏ qua kiểm tra chứng chỉ SSL (dùng cho test)
+
+      // Gửi yêu cầu GET
+      http.begin(client, serverUrl1);
+      int httpCode = http.GET();
+
+      if (httpCode > 0)
+      {
+        String payload = http.getString();
+        Serial.println("Response: " + payload);
+
+        // Xử lý JSON
+        StaticJsonDocument<200> doc;
+        DeserializationError error = deserializeJson(doc, payload);
+
+        if (!error)
+        {
+          int led1 = doc["LED1"];
+          int led2 = doc["LED2"];
+          int led3 = doc["LED3"];
+
+          // Điều khiển LED
+          digitalWrite(LED1_PIN, led1);
+        }
+        else
+        {
+          Serial.println("JSON parsing error: " + String(error.c_str()));
+        }
+      }
+      else
+      {
+        Serial.println("HTTP request failed, code: " + String(httpCode));
+      }
+
+      http.end();
+    }
+    else
+    {
+      Serial.println("WiFi disconnected");
+      u8g2.clearBuffer();
+      u8g2.drawStr(0, 10, "WiFi Disconnected");
+      u8g2.sendBuffer();
+    }
+  }
+  vTaskDelay(pdMS_TO_TICKS(10000));
+}
+
 // Task read data from server and control led
 void serverReadTask(void *pvParameters)
 {
@@ -318,14 +420,31 @@ void setup()
   u8g2.setFont(u8g2_font_ncenB08_tr); // Chọn font chữ nhỏ
   u8g2.clearBuffer();
   u8g2.drawStr(0, 10, "Starting...");
+  u8g2.drawStr(0, 20, "Getting WiFi...");
   u8g2.sendBuffer();
+
+  WiFiManager wm;
+  bool res = wm.autoConnect("ESP32-4G");
+  if (!res)
+  {
+    Serial.println("Failed to connect to WiFi");
+    u8g2.drawStr(0, 30, "Pls restart esp32...");
+  }
+  else
+  {
+    Serial.println("Connected to WiFi");
+    u8g2.drawStr(0, 30, "WiFi done...");
+  }
+  u8g2.sendBuffer();
+
+  vTaskDelay(pdMS_TO_TICKS(2000));
 
   dataMutex = xSemaphoreCreateMutex();
 
   xTaskCreatePinnedToCore(sensorTask, "SensorTask", 4096, NULL, 1, NULL, 0);
   xTaskCreatePinnedToCore(relayTask, "RelayTask", 2048, NULL, 1, NULL, 1);
-  xTaskCreatePinnedToCore(simTask, "SIMTask", 4096, NULL, 1, NULL, 1);
-  xTaskCreatePinnedToCore(serverReadTask, "ServerReadTask", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(wifiSendTask, "WifiSendTask", 20480, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(wifiReadTask, "WifiReadTask", 20480, NULL, 1, NULL, 1);
 }
 
 void loop()
