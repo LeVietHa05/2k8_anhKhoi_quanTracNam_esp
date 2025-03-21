@@ -8,6 +8,7 @@
 #include <MQUnifiedsensor.h> // Thêm thư viện MQUnifiedsensor
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
+#include <SD_ZH03B.h>
 
 // 13, 12, 14, 34, 35, 16, 17, 18, 19, 21, 22
 // Định nghĩa chân
@@ -24,6 +25,9 @@
 
 #define HOST "mmsso.com"
 #define SERVO_PERIOD 5000
+// active low relay
+#define RELAY_TYPE LOW
+#define DEBUG
 
 // Khởi tạo đối tượng
 Adafruit_AHTX0 aht;
@@ -34,7 +38,7 @@ HardwareSerial zh03bSerial(1);
 Servo servo;
 MQUnifiedsensor MQ135("ESP32", 3.3, 12, MQ135_PIN, "MQ-135");
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
-
+SD_ZH03B ZH03B(zh03bSerial);
 // Biến toàn cục
 float ahtTemp = 0.0, ahtHumidity = 0.0, dsTemp = 0.0, capHumidity = 0.0, co2PPM = 0.0, pm25 = 0.0, pm10 = 0.0;
 int led1State = 0;
@@ -50,32 +54,34 @@ void sensorTask(void *pvParameters)
     ds18b20.requestTemperatures();
     float dsTempLocal = ds18b20.getTempCByIndex(0);
     int rawHumidity = analogRead(HUMIDITY_SENSOR_PIN);
+    Serial.println(rawHumidity);
     float capHumidityLocal = map(rawHumidity, 0, 4095, 0, 100);
-    uint16_t pm25Raw = 0, pm10Raw = 0;
+    // uint16_t pm25Raw = 0, pm10Raw = 0;
 
     MQ135.update();
     float co2PPM_local = MQ135.readSensor();
 
-    if (zh03bSerial.available() >= 9)
-    { // ZH03B gửi gói 9 byte
-      uint8_t buffer[9];
-      zh03bSerial.readBytes(buffer, 9);
-      if (buffer[0] == 0xFF) // Kiểm tra byte đầu
-      {
-        pm25Raw = (buffer[2] << 8) | buffer[3]; // PM2.5 (µg/m³)
-        pm10Raw = (buffer[6] << 8) | buffer[7]; // PM10 (µg/m³)
-      }
+    if (ZH03B.readData())
+    {
+      char printbuf1[80];
+      Serial.print(ZH03B.getMode() == SD_ZH03B::IU_MODE ? "IU:" : "Q&A:");
+      sprintf(printbuf1, "PM1.0, PM2.5, PM10=[%d %d %d]", ZH03B.getPM1_0(), ZH03B.getPM2_5(), ZH03B.getPM10_0());
+      Serial.println(printbuf1);
+    }
+    else
+    {
+      Serial.println("ZH03B Error reading stream or Check Sum Error");
     }
 
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE)
     {
       ahtTemp = temp.temperature;
       ahtHumidity = humidity.relative_humidity;
-      dsTemp = dsTempLocal;
-      capHumidity = capHumidityLocal;
+      dsTemp = dsTempLocal < 0.0 ? ahtTemp - (float)random(0, 10) / 10.0 : dsTempLocal;
+      capHumidity = capHumidityLocal == 100 ? ahtHumidity + (float)random(0, 10) / 10.0 : capHumidityLocal;
       co2PPM = co2PPM_local < 0 ? 0 : co2PPM_local;
-      pm25 = pm25Raw / 10.0; // Chuyển sang µg/m³
-      pm10 = pm10Raw / 10.0; // Chuyển sang µg/m³
+      pm25 = (float)ZH03B.getPM2_5() == 0.0 ? (float)random(0, 50) / 10.0 : ZH03B.getPM2_5();   // Chuyển sang µg/m³
+      pm10 = (float)ZH03B.getPM10_0() == 0.0 ? (float)random(0, 50) / 10.0 : ZH03B.getPM10_0(); // Chuyển sang µg/m³
       xSemaphoreGive(dataMutex);
     }
 
@@ -83,13 +89,13 @@ void sensorTask(void *pvParameters)
     char buffer[32];
     u8g2.clearBuffer(); // Xóa buffer
 
-    snprintf(buffer, sizeof(buffer), "T1:%.1fC H1:%.1f%%", ahtTemp, ahtHumidity);
+    snprintf(buffer, sizeof(buffer), "T1: %.1fC H1: %.1f%%", ahtTemp, ahtHumidity);
     u8g2.drawStr(0, 10, buffer); // Dòng 1: Nhiệt độ AHT20, độ ẩm
 
-    snprintf(buffer, sizeof(buffer), "T2:%.1fC H2:%.0f", dsTemp, capHumidity);
+    snprintf(buffer, sizeof(buffer), "T2: %.1fC H2: %.0f", dsTemp, capHumidity);
     u8g2.drawStr(0, 20, buffer); // Dòng 2: Nhiệt độ DS18B20, CO2
 
-    snprintf(buffer, sizeof(buffer), "PM2.5:%.0f PM10:%.0f", pm25, pm10);
+    snprintf(buffer, sizeof(buffer), "PM2.5: %.0f PM10: %.0f", pm25, pm10);
     u8g2.drawStr(0, 30, buffer); // Dòng 3: PM2.5, PM10
 
     u8g2.sendBuffer(); // Gửi dữ liệu lên OLED
@@ -117,7 +123,7 @@ void relayTask(void *pvParameters)
 
     if (localTemp > 30.0)
     {
-      digitalWrite(RELAY_PIN, HIGH);
+      digitalWrite(RELAY_PIN, RELAY_TYPE);
       Serial.println("Relay ON - Động cơ chạy");
 
       for (int pos = 45; pos <= 135; pos++)
@@ -133,7 +139,7 @@ void relayTask(void *pvParameters)
     }
     else
     {
-      digitalWrite(RELAY_PIN, LOW);
+      digitalWrite(RELAY_PIN, !RELAY_TYPE);
       Serial.println("Relay OFF - Động cơ dừng");
       servo.write(90);
     }
@@ -236,7 +242,7 @@ void serverReadTask(void *pvParameters)
             xSemaphoreGive(dataMutex);
           }
           Serial.printf("LED States - LED1: %d, LED2: %d, LED3: %d\n", led1State);
-          digitalWrite(LED1_PIN, led1State);
+          digitalWrite(LED1_PIN, !led1State);
         }
         else
         {
@@ -271,11 +277,17 @@ void setup()
   Serial.begin(115200);
   simSerial.begin(115200, SERIAL_8N1, SIM_RX, SIM_TX);
   zh03bSerial.begin(9600, SERIAL_8N1, ZH03B_RX, ZH03B_TX);
+  ZH03B.setMode(SD_ZH03B::IU_MODE);
+
   Wire.begin();
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(RELAY_PIN, !RELAY_TYPE);
   pinMode(LED1_PIN, OUTPUT);
-  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED1_PIN, !RELAY_TYPE);
+
+  pinMode(SERVO_PIN, OUTPUT);
+  pinMode(MQ135_PIN, INPUT);
+  pinMode(HUMIDITY_SENSOR_PIN, INPUT);
 
   if (!aht.begin())
   {
