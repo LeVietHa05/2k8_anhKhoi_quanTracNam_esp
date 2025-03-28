@@ -15,13 +15,13 @@
 
 // 13, 12, 14, 34, 35, 16, 17, 18, 19, 21, 22
 // Định nghĩa chân
-#define DS18B20_PIN 14
-#define RELAY_PIN 13
+#define DS18B20_PIN 35
+#define RELAY_PIN 27
 #define HUMIDITY_SENSOR_PIN 34
 #define SIM_RX 16
 #define SIM_TX 17
 #define SERVO_PIN 12
-#define MQ135_PIN 35 // Chân GPIO cho MQ135 (analog)
+#define MQ135_PIN 14 // Chân GPIO cho MQ135 (analog)
 #define ZH03B_RX 18  // Chân RX cho ZH03B
 #define ZH03B_TX 19  // Chân TX cho ZH03B
 #define LED1_PIN 2   // relay for led 2
@@ -31,7 +31,7 @@ const char *serverUrl1 = "https://mmsso.com/led-states";
 String serverUrl2 = "https://mmsso.com/update";
 #define SERVO_PERIOD 5000
 // active low relay
-#define RELAY_TYPE LOW
+#define RELAY_TYPE 0
 #define DEBUG
 
 // Khởi tạo đối tượng
@@ -239,6 +239,7 @@ void wifiSendTask(void *pvParameters)
       u8g2.drawStr(0, 10, "WiFi Disconnected");
       u8g2.sendBuffer();
     }
+    vTaskDelay(pdMS_TO_TICKS(10000)); // Gửi dữ liệu mỗi 10 giây
   }
 }
 
@@ -272,7 +273,7 @@ void wifiReadTask(void *pvParameters)
           int led3 = doc["LED3"];
 
           // Điều khiển LED
-          digitalWrite(LED1_PIN, led1);
+          digitalWrite(LED1_PIN, !led1);
         }
         else
         {
@@ -293,8 +294,8 @@ void wifiReadTask(void *pvParameters)
       u8g2.drawStr(0, 10, "WiFi Disconnected");
       u8g2.sendBuffer();
     }
+    vTaskDelay(pdMS_TO_TICKS(10000));
   }
-  vTaskDelay(pdMS_TO_TICKS(10000));
 }
 
 // Task read data from server and control led
