@@ -47,6 +47,7 @@ SD_ZH03B ZH03B(zh03bSerial);
 // Biến toàn cục
 float ahtTemp = 0.0, ahtHumidity = 0.0, dsTemp = 0.0, capHumidity = 0.0, co2PPM = 0.0, pm25 = 0.0, pm10 = 0.0;
 int led1State = 0;
+bool isWebControling = false;
 SemaphoreHandle_t dataMutex;
 
 // Task đọc cảm biến
@@ -144,9 +145,12 @@ void relayTask(void *pvParameters)
     }
     else
     {
-      digitalWrite(RELAY_PIN, !RELAY_TYPE);
-      Serial.println("Relay OFF - Động cơ dừng");
-      servo.write(90);
+      if (!isWebControling)
+      {
+        digitalWrite(RELAY_PIN, !RELAY_TYPE);
+        Serial.println("Relay OFF - Động cơ dừng");
+        servo.write(90);
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(3000));
@@ -272,8 +276,11 @@ void wifiReadTask(void *pvParameters)
           int led2 = doc["LED2"];
           int led3 = doc["LED3"];
 
+          isWebControling = led2;
+
           // Điều khiển LED
           digitalWrite(LED1_PIN, !led1);
+          digitalWrite(RELAY_PIN, !led2);
         }
         else
         {
