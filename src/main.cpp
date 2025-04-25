@@ -120,40 +120,54 @@ void relayTask(void *pvParameters)
 {
   while (1)
   {
-    float localTemp;
-    if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE)
+    if (isWebControling)
     {
-      localTemp = ahtTemp;
-      xSemaphoreGive(dataMutex);
-    }
-
-    if (localTemp > 30.0)
-    {
-      digitalWrite(RELAY_PIN, RELAY_TYPE);
-      Serial.println("Relay ON - Động cơ chạy");
-
-      for (int pos = 45; pos <= 135; pos++)
+      digitalWrite(RELAY_PIN, RELAY_TYPE);  
+      // Continuously move servo from 0 to 180 and back to 0
+      for (int pos = 0; pos <= 180; pos++)
       {
         servo.write(pos);
-        vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+        vTaskDelay(pdMS_TO_TICKS(15)); // Adjust delay for smooth movement
       }
-      for (int pos = 135; pos >= 45; pos--)
+      for (int pos = 180; pos >= 0; pos--)
       {
         servo.write(pos);
-        vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+        vTaskDelay(pdMS_TO_TICKS(15));
       }
     }
     else
     {
-      if (!isWebControling)
+      float localTemp;
+      if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE)
+      {
+        localTemp = ahtTemp;
+        xSemaphoreGive(dataMutex);
+      }
+
+      if (localTemp > 30.0)
+      {
+        digitalWrite(RELAY_PIN, RELAY_TYPE);
+        Serial.println("Relay ON - Động cơ chạy");
+
+        for (int pos = 45; pos <= 135; pos++)
+        {
+          servo.write(pos);
+          vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+        }
+        for (int pos = 135; pos >= 45; pos--)
+        {
+          servo.write(pos);
+          vTaskDelay(pdMS_TO_TICKS(SERVO_PERIOD / 90));
+        }
+      }
+      else
       {
         digitalWrite(RELAY_PIN, !RELAY_TYPE);
         Serial.println("Relay OFF - Động cơ dừng");
         servo.write(90);
       }
+      vTaskDelay(pdMS_TO_TICKS(3000));
     }
-
-    vTaskDelay(pdMS_TO_TICKS(3000));
   }
 }
 
@@ -280,7 +294,7 @@ void wifiReadTask(void *pvParameters)
 
           // Điều khiển LED
           digitalWrite(LED1_PIN, !led1);
-          digitalWrite(RELAY_PIN, !led2);
+          // digitalWrite(RELAY_PIN, !led2);
         }
         else
         {
@@ -301,7 +315,7 @@ void wifiReadTask(void *pvParameters)
       u8g2.drawStr(0, 10, "WiFi Disconnected");
       u8g2.sendBuffer();
     }
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(3000));
   }
 }
 
@@ -431,18 +445,29 @@ void setup()
   u8g2.drawStr(0, 20, "Getting WiFi...");
   u8g2.sendBuffer();
 
-  WiFiManager wm;
-  bool res = wm.autoConnect("ESP32-4G");
-  if (!res)
+  WiFi.begin("Wokwi-GUEST", "");
+
+  if (WiFi.status() != WL_CONNECTED)
   {
-    Serial.println("Failed to connect to WiFi");
-    u8g2.drawStr(0, 30, "Pls restart esp32...");
+    Serial.println("Đang kết nối WiFi...");
+    u8g2.clearBuffer();
+    u8g2.drawStr(0, 10, "Connecting WiFi...");
+    u8g2.sendBuffer();
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
-  else
-  {
-    Serial.println("Connected to WiFi");
+
+  // WiFiManager wm;
+  // bool res = wm.autoConnect("ESP32-4G");
+  // if (!res)
+  // {
+  //   Serial.println("Failed to connect to WiFi");
+  //   u8g2.drawStr(0, 30, "Pls restart esp32...");
+  // }
+  // else
+  // {
+  //   Serial.println("Connected to WiFi");
     u8g2.drawStr(0, 30, "WiFi done...");
-  }
+  // }
   u8g2.sendBuffer();
 
   vTaskDelay(pdMS_TO_TICKS(2000));
